@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <title>Lindt – Zagraj i wygraj</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { background: #d4b896; }
+
+    body {
+      width: 1440px;
+      margin: 0 auto;
+      min-height: 5818px;
+      background: url('tlo_strony.png') no-repeat top left;
+      background-size: 1440px auto;
+      position: relative;
+      cursor: default;
+    }
+
+    /* ── game zone sits exactly on the banner ── */
+    #zone {
+      position: absolute;
+      top: 237px;
+      left: 0;
+      width: 1440px;
+      height: 400px;
+      overflow: hidden;
+    }
+
+    /* blurred banner background */
+    #zone-bg {
+      position: absolute; inset: 0;
+      background: url('tlo_gry.png') no-repeat center center;
+      background-size: cover;
+      display: none;
+    }
+
+    /* game canvas */
+    #gc {
+      position: absolute; inset: 0;
+      display: none;
+      cursor: none;
+    }
+
+    /* trigger button (idle state) */
+    #trigger {
+      position: absolute;
+      bottom: 24px; right: 32px;
+      background: rgba(61,35,12,0.82);
+      color: #f5e8c8;
+      border: 1px solid rgba(200,164,80,0.6);
+      padding: 11px 28px;
+      font: 600 13px/1 'Georgia', serif;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      cursor: pointer;
+      backdrop-filter: blur(4px);
+    }
+    #trigger:hover { background: rgba(61,35,12,0.97); }
+
+    /* close button */
+    #close-btn {
+      position: absolute; top: 42px; right: 18px;
+      width: 34px; height: 34px; border-radius: 50%;
+      background: rgba(61,35,12,0.72); color: #f5e8c8;
+      border: 1px solid rgba(200,164,80,0.4);
+      font-size: 17px; cursor: pointer; display: none;
+      align-items: center; justify-content: center;
+      z-index: 10;
+    }
+    #close-btn.on { display: flex; }
+
+    /* overlay screens */
+    .screen {
+      position: absolute; inset: 0;
+      display: none;
+      flex-direction: column; align-items: center; justify-content: center;
+      background: rgba(38,20,8,0.82);
+      backdrop-filter: blur(3px);
+      color: #f5e8c8;
+      text-align: center;
+      font-family: 'Georgia', serif;
+      z-index: 20;
+    }
+    .screen.on { display: flex; }
+
+    .screen h2 {
+      font-size: 46px; font-weight: 400;
+      letter-spacing: 2px;
+      color: #f0d080;
+      margin-bottom: 10px;
+      text-shadow: 0 2px 12px rgba(0,0,0,0.5);
+    }
+    .screen p {
+      font-size: 17px; color: #d4b896;
+      margin-bottom: 32px;
+      line-height: 1.5;
+    }
+    .screen .sub {
+      font-size: 13px; color: #a08060;
+      margin-bottom: 0; margin-top: 16px;
+      letter-spacing: 0.5px;
+    }
+    .screen .sub kbd {
+      background: rgba(255,255,255,0.1);
+      padding: 2px 8px; border-radius: 3px;
+      font-family: monospace; font-size: 12px;
+    }
+
+    .gold-btn {
+      background: url('pasek.png') no-repeat center center;
+      background-size: cover;
+      width: 254px; height: 47px;
+      border: none; cursor: pointer;
+      display: block;
+      transition: filter 0.15s;
+    }
+    .gold-btn:hover { filter: brightness(1.15); }
+  </style>
+</head>
+<body>
+  <div id="zone">
+    <div id="zone-bg"></div>
+    <canvas id="gc"></canvas>
+    <button id="trigger">🎮 Zagraj i wygraj</button>
+    <button id="close-btn" title="Zamknij">✕</button>
+
+    <!-- ready screen -->
+    <div class="screen" id="scr-ready">
+      <h2>Zagraj i wygraj</h2>
+      <p>Rozbij wszystkie czekoladki<br>i odbierz nagrodę!</p>
+      <button class="gold-btn" id="btn-launch"></button>
+      <p class="sub"><kbd>SPACE</kbd> lub klik aby odpalić · <kbd>←→</kbd> paletka</p>
+    </div>
+
+    <!-- win screen -->
+    <div class="screen" id="scr-win">
+      <h2>Brawo!</h2>
+      <p id="win-msg">Zebrałeś wszystkie czekoladki.<br>Odbierz swoją nagrodę!</p>
+      <button class="gold-btn" id="btn-cta"></button>
+      <p class="sub" style="margin-top:16px">
+        <button id="btn-retry-w" style="background:none;border:none;color:#a08060;font:13px Georgia,serif;cursor:pointer;letter-spacing:.5px;text-decoration:underline">Zagraj jeszcze raz</button>
+        &nbsp;·&nbsp;
+        <button id="btn-close-w" style="background:none;border:none;color:#a08060;font:13px Georgia,serif;cursor:pointer;letter-spacing:.5px;text-decoration:underline">Zamknij grę</button>
+      </p>
+    </div>
+
+    <!-- gameover screen -->
+    <div class="screen" id="scr-over">
+      <h2>Następnym razem!</h2>
+      <p id="over-msg">Wynik: 0 pkt</p>
+      <button class="gold-btn" id="btn-retry-o"></button>
+      <p class="sub" style="margin-top:16px">
+        <button id="btn-close-o" style="background:none;border:none;color:#a08060;font:13px Georgia,serif;cursor:pointer;letter-spacing:.5px;text-decoration:underline">Zamknij grę</button>
+      </p>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+
+    /* ── constants ─────────────────────────────────────────────────── */
+    const W = 1440, H = 400;
+    const COLS = 8, ROWS = 3;
+    const BRICK_W = 100, BRICK_H = 52;   // original image size
+    const BRICK_GAP_X = 9, BRICK_GAP_Y = 15;
+    const BRICKS_MARGIN = 278;            // left margin from wzor
+    const BRICKS_TOP = 12;
+    const PADDLE_H = 47;
+    const PADDLE_W_INIT = 254;
+    const PADDLE_Y = 334;                 // from wzor measurement
+    const BALL_R = 12;
+    const SPEED_START = 3.5;
+    const SPEED_MAX = 7;
+    const LIVES_INIT = 3;
+
+    /* ── brick image sequence: 24 slots, k1–k12 each used twice ── */
+    const BRICK_IMG_KEYS = [
+      'k1','k2','k3','k4','k5','k6','k7','k8',       // row 0
+      'k9','k10','k11','k12','k1','k2','k3','k4',     // row 1
+      'k5','k6','k7','k8','k9','k10','k11','k12',     // row 2
+    ];
+
+    /* ── elements ──────────────────────────────────────────────────── */
+    const zone      = document.getElementById('zone');
+    const zoneBg    = document.getElementById('zone-bg');
+    const canvas    = document.getElementById('gc');
+    const ctx       = canvas.getContext('2d');
+    const trigger   = document.getElementById('trigger');
+    const closeBtn  = document.getElementById('close-btn');
+    const scrReady  = document.getElementById('scr-ready');
+    const scrWin    = document.getElementById('scr-win');
+    const scrOver   = document.getElementById('scr-over');
+    const btnLaunch = document.getElementById('btn-launch');
+    const btnCta    = document.getElementById('btn-cta');
+    const btnRetryW = document.getElementById('btn-retry-w');
+    const btnRetryO = document.getElementById('btn-retry-o');
+    const btnCloseW = document.getElementById('btn-close-w');
+    const btnCloseO = document.getElementById('btn-close-o');
+
+    canvas.width = W; canvas.height = H;
+
+    /* ── asset loading ─────────────────────────────────────────────── */
+    const imgs = {};
+    const assetList = {
+      ball:   'ball2.png',
+      paddle: 'pasek.png',
+      k1: 'k1.png', k2: 'k2.png', k3: 'k3.png', k4: 'k4.png',
+      k5: 'k5.png', k6: 'k6.png', k7: 'k7.png', k8: 'k8.png',
+      k9: 'k9.png', k10:'k10.png',k11:'k11.png',k12:'k12.png',
+    };
+
+    let loadedCount = 0;
+    const totalAssets = Object.keys(assetList).length;
+
+    function loadAssets(cb) {
+      Object.entries(assetList).forEach(([key, src]) => {
+        const img = new Image();
+        img.onload = () => { loadedCount++; if (loadedCount === totalAssets) cb(); };
+        img.onerror = () => { loadedCount++; if (loadedCount === totalAssets) cb(); };
+        img.src = src;
+        imgs[key] = img;
+      });
+    }
+
+    /* ── state ─────────────────────────────────────────────────────── */
+    let state = 'idle'; // idle | ready | playing | win | over
+    let bricks, ball, paddle, score, lives, raf, paddleVel;
+
+    function initGameState() {
+      score = 0;
+      lives = LIVES_INIT;
+      paddleVel = 0;
+      paddle = { x: (W - PADDLE_W_INIT) / 2, w: PADDLE_W_INIT };
+      resetBall();
+      buildBricks();
+    }
+
+    function resetBall() {
+      ball = {
+        x: paddle.x + paddle.w / 2,
+        y: PADDLE_Y - BALL_R - 2,
+        vx: (Math.random() > .5 ? 1 : -1) * SPEED_START * .65,
+        vy: -SPEED_START,
+        stuck: true,
+      };
+    }
+
+    function buildBricks() {
+      bricks = [];
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const idx = r * COLS + c;
+          bricks.push({
+            x: BRICKS_MARGIN + c * (BRICK_W + BRICK_GAP_X),
+            y: BRICKS_TOP  + r * (BRICK_H + BRICK_GAP_Y),
+            w: BRICK_W, h: BRICK_H,
+            imgKey: BRICK_IMG_KEYS[idx],
+            alive: true,
+          });
+        }
+      }
+    }
+
+    /* ── drawing ───────────────────────────────────────────────────── */
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+
+      // bricks
+      bricks.forEach(b => {
+        if (!b.alive) return;
+        const img = imgs[b.imgKey];
+        if (img && img.complete && img.naturalWidth) {
+          ctx.drawImage(img, b.x, b.y, b.w, b.h);
+        } else {
+          // fallback rect
+          ctx.fillStyle = '#8b5c2a';
+          ctx.fillRect(b.x, b.y, b.w, b.h);
+        }
+      });
+
+      // paddle
+      const padImg = imgs.paddle;
+      if (padImg && padImg.complete) {
+        ctx.drawImage(padImg, paddle.x, PADDLE_Y, paddle.w, PADDLE_H);
+      }
+
+      // ball
+      const ballImg = imgs.ball;
+      if (ballImg && ballImg.complete) {
+        ctx.drawImage(ballImg, ball.x - BALL_R, ball.y - BALL_R, BALL_R * 2, BALL_R * 2);
+      }
+
+      // HUD
+      drawHUD();
+    }
+
+    function drawHUD() {
+      // score – top left, Lindt style
+      ctx.save();
+      ctx.fillStyle = 'rgba(38,20,8,0.55)';
+      ctx.fillRect(0, 0, 220, 36);
+      ctx.font = '500 14px Georgia, serif';
+      ctx.fillStyle = '#f0d080';
+      ctx.textBaseline = 'middle';
+      ctx.letterSpacing = '1px';
+      ctx.fillText(`WYNIK:  ${score}`, 18, 18);
+      ctx.restore();
+
+      // lives – top right as mini balls
+      for (let i = 0; i < lives; i++) {
+        const ballImg = imgs.ball;
+        if (ballImg && ballImg.complete) {
+          ctx.drawImage(ballImg, W - 30 - i * 32, 8, 22, 22);
+        }
+      }
+
+      // "odpal" hint
+      if (ball.stuck && state === 'ready') {
+        ctx.save();
+        ctx.font = 'italic 14px Georgia, serif';
+        ctx.fillStyle = 'rgba(240,208,128,0.85)';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Kliknij lub naciśnij SPACE aby odpalić', W / 2, 18);
+        ctx.restore();
+      }
+    }
+
+    /* ── physics ───────────────────────────────────────────────────── */
+    function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+    function tick() {
+      if (state !== 'playing') return;
+
+      // paddle keyboard
+      paddle.x = clamp(paddle.x + paddleVel, 0, W - paddle.w);
+
+      // ball stuck to paddle
+      if (ball.stuck) {
+        ball.x = paddle.x + paddle.w / 2;
+        return;
+      }
+
+      ball.x += ball.vx;
+      ball.y += ball.vy;
+
+      // walls
+      if (ball.x - BALL_R < 0)  { ball.x = BALL_R;   ball.vx =  Math.abs(ball.vx); }
+      if (ball.x + BALL_R > W)  { ball.x = W - BALL_R; ball.vx = -Math.abs(ball.vx); }
+      if (ball.y - BALL_R < 0)  { ball.y = BALL_R;   ball.vy =  Math.abs(ball.vy); }
+
+      // paddle collision
+      if (
+        ball.vy > 0 &&
+        ball.y + BALL_R >= PADDLE_Y &&
+        ball.y + BALL_R <= PADDLE_Y + PADDLE_H + 6 &&
+        ball.x >= paddle.x - 4 &&
+        ball.x <= paddle.x + paddle.w + 4
+      ) {
+        const rel    = (ball.x - (paddle.x + paddle.w / 2)) / (paddle.w / 2);
+        const angle  = rel * (Math.PI / 3);
+        const speed  = clamp(Math.hypot(ball.vx, ball.vy) + 0.06, SPEED_START, SPEED_MAX);
+        ball.vx      = Math.sin(angle) * speed;
+        ball.vy      = -Math.cos(angle) * speed;
+        ball.y       = PADDLE_Y - BALL_R;
+      }
+
+      // brick collisions
+      for (const b of bricks) {
+        if (!b.alive) continue;
+        const closestX = clamp(ball.x, b.x, b.x + b.w);
+        const closestY = clamp(ball.y, b.y, b.y + b.h);
+        const dx = ball.x - closestX, dy = ball.y - closestY;
+        if (dx*dx + dy*dy > BALL_R * BALL_R) continue;
+
+        b.alive = false;
+        score += 100;
+
+        // bounce axis
+        const overlapX = Math.abs(dx) < Math.abs(dy);
+        if (overlapX) ball.vx *= -1; else ball.vy *= -1;
+        break;
+      }
+
+      // ball lost
+      if (ball.y - BALL_R > H) {
+        lives--;
+        if (lives <= 0) { endGame(false); return; }
+        resetBall();
+        state = 'playing'; // keep playing, ball stuck again
+      }
+
+      // all clear
+      if (bricks.every(b => !b.alive)) { endGame(true); }
+    }
+
+    /* ── loop ──────────────────────────────────────────────────────── */
+    function loop() {
+      tick();
+      draw();
+      raf = requestAnimationFrame(loop);
+    }
+
+    /* ── lifecycle ─────────────────────────────────────────────────── */
+    function openGame() {
+      trigger.style.display = 'none';
+      zoneBg.style.display  = 'block';
+      canvas.style.display  = 'block';
+      closeBtn.classList.add('on');
+      initGameState();
+      state = 'ready';
+      scrReady.classList.add('on');
+      raf = requestAnimationFrame(loop);
+    }
+
+    function launch() {
+      if (state !== 'ready' && state !== 'playing') return;
+      if (!ball.stuck) return;
+      scrReady.classList.remove('on');
+      ball.stuck = false;
+      state = 'playing';
+    }
+
+    function endGame(won) {
+      cancelAnimationFrame(raf);
+      state = won ? 'win' : 'over';
+      if (won) {
+        document.getElementById('win-msg').innerHTML =
+          `Zebrałeś wszystkie czekoladki!<br>Odbierz <strong style="color:#f0d080">-25%</strong> na zakupy.`;
+        scrWin.classList.add('on');
+      } else {
+        document.getElementById('over-msg').textContent = `Wynik: ${score} pkt`;
+        scrOver.classList.add('on');
+      }
+    }
+
+    function closeGame() {
+      cancelAnimationFrame(raf);
+      state = 'idle';
+      [scrReady, scrWin, scrOver].forEach(s => s.classList.remove('on'));
+      canvas.style.display  = 'none';
+      zoneBg.style.display  = 'none';
+      closeBtn.classList.remove('on');
+      trigger.style.display = 'block';
+    }
+
+    function restartGame() {
+      [scrReady, scrWin, scrOver].forEach(s => s.classList.remove('on'));
+      initGameState();
+      state = 'ready';
+      scrReady.classList.add('on');
+      raf = requestAnimationFrame(loop);
+    }
+
+    /* ── input ─────────────────────────────────────────────────────── */
+    const keys = {};
+    document.addEventListener('keydown', e => {
+      keys[e.key] = true;
+      if (e.key === ' ')          { launch(); e.preventDefault(); }
+      if (e.key === 'Escape')     { closeGame(); }
+      if (e.key === 'ArrowLeft')  { paddleVel = -8; e.preventDefault(); }
+      if (e.key === 'ArrowRight') { paddleVel =  8; e.preventDefault(); }
+    });
+    document.addEventListener('keyup', e => {
+      keys[e.key] = false;
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') paddleVel = 0;
+    });
+
+    zone.addEventListener('mousemove', e => {
+      if (state === 'idle') return;
+      const rect = zone.getBoundingClientRect();
+      paddle.x = clamp(e.clientX - rect.left - paddle.w / 2, 0, W - paddle.w);
+    });
+
+    canvas.addEventListener('click', launch);
+
+    /* ── button wiring ─────────────────────────────────────────────── */
+    trigger.addEventListener('click',   openGame);
+    closeBtn.addEventListener('click',  closeGame);
+    btnLaunch.addEventListener('click', launch);
+    btnRetryW.addEventListener('click', restartGame);
+    btnRetryO.addEventListener('click', restartGame);
+    btnCloseW.addEventListener('click', closeGame);
+    btnCloseO.addEventListener('click', closeGame);
+    btnCta.addEventListener('click', () => {
+      window.open('https://www.lindt.pl/en/gifts', '_blank');
+    });
+
+    /* ── touch ─────────────────────────────────────────────────────── */
+    zone.addEventListener('touchmove', e => {
+      if (state === 'idle') return;
+      e.preventDefault();
+      const rect = zone.getBoundingClientRect();
+      paddle.x = clamp(e.touches[0].clientX - rect.left - paddle.w / 2, 0, W - paddle.w);
+    }, { passive: false });
+    zone.addEventListener('touchstart', () => launch());
+
+    /* ── boot ──────────────────────────────────────────────────────── */
+    loadAssets(() => {
+      // assets ready — trigger visible, waiting for user
+    });
+
+  })();
+  </script>
+</body>
+</html>
