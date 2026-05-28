@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <title>Lindt Chocolate Maze</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { background: #f5f0e8; }
+    body {
+      width: 1440px; margin: 0 auto;
+      min-height: 5818px;
+      background: url('tlo_strony.png') no-repeat top left;
+      background-size: 1440px auto;
+      position: relative;
+    }
+    #zone {
+      position: absolute;
+      top: 237px; left: 0;
+      width: 1440px; height: 400px;
+      overflow: hidden;
+      background: #ffffff;
+    }
+    #gc { position: absolute; inset: 0; }
+
+    #hud {
+      position: absolute; top: 0; left: 0; right: 0; height: 36px;
+      background: rgba(255,255,255,0.85); backdrop-filter: blur(3px);
+      display: none; align-items: center; justify-content: space-between;
+      padding: 0 24px; z-index: 20;
+      font: 500 12px/1 'Georgia', serif;
+      color: #4a1800; letter-spacing: 2px;
+      border-bottom: 1px solid rgba(160,100,40,0.15);
+    }
+    #hud.on { display: flex; }
+
+    .screen {
+      position: absolute; inset: 0;
+      display: none; flex-direction: column;
+      align-items: center; justify-content: center;
+      font-family: 'Georgia', serif; text-align: center;
+      z-index: 40;
+    }
+    .screen.on { display: flex; }
+    .screen h2 { font-size: 38px; font-weight: 400; letter-spacing: 5px; color: #3a1200; margin-bottom: 8px; }
+    .screen p  { font-size: 13px; color: #7a4020; margin-bottom: 22px; line-height: 1.8; }
+    .gold-btn {
+      background: linear-gradient(135deg, #a87008, #eed858 50%, #a87008);
+      color: #2a0e00; border: none; padding: 13px 44px;
+      font: 700 12px/1 'Georgia', serif; letter-spacing: 2.5px;
+      text-transform: uppercase; cursor: pointer; transition: filter .15s;
+    }
+    .gold-btn:hover { filter: brightness(1.1); }
+    .sub { font: 11px 'Georgia', serif; color: #a07848; margin-top: 10px; letter-spacing: .5px; }
+    #loading-msg { font: 13px 'Georgia', serif; color: #7a4020; margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+<div id="zone">
+  <canvas id="gc"></canvas>
+  <canvas id="dbg-canvas" style="position:absolute;inset:0;pointer-events:none;display:none;"></canvas>
+
+  <div id="hud">
+    <span>LABIRYNT LINDT</span>
+    <span id="hud-timer">00:00</span>
+  </div>
+
+  <div class="screen" id="scr-ready" style="background:rgba(255,255,255,0.90)">
+    <h2>Labirynt</h2>
+    <p>Pochylaj czekoladowy labirynt,<br>
+       aby przeprowadzić kulkę od <strong>startu</strong> do <strong>mety</strong>.</p>
+    <div id="loading-msg">Ładowanie modelu…</div>
+    <button class="gold-btn" id="btn-play">ZAGRAJ</button>
+    <div class="sub">Strzałki ← → ↑ ↓ · ESC = reset kulki</div>
+  </div>
+
+  <div class="screen" id="scr-win" style="background:rgba(255,255,255,0.93)">
+    <h2>Brawo!</h2>
+    <p id="win-txt"></p>
+    <button class="gold-btn" id="btn-retry">ZAGRAJ JESZCZE RAZ</button>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/",
+    "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.6.8/build/index.module.js"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
+
+THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
+THREE.BufferGeometry.prototype.disposeBoundsTree  = disposeBoundsTree;
+THREE.Mesh.prototype.raycast = acceleratedRaycast;
+
+/* ══════════════════════════════════════════════
+   CONSTANTS
+══════════════════════════════════════════════ */
+const W = 1440, H = 400;
+const MAZE_SCALE = 17;   // scale to match old game dimensions (~MX=6, MZ=2.5)
+const BR = 0.12;         // ball radius — smaller than wall height so ball sits inside corridors
+
+let MX = 6.0, MZ = 2.5; // updated after model loads
+
+const GCOLS = 128, GROWS = 56; // double resolution → cellWidth≈0.095, max wall penetration <0.05
+
+// Debug: show passable-cell overlay. Disable before shipping.
+const SHOW_DEBUG_GRID = true;
+
+// Manual start/goal overrides. null = auto-detect. Enable SHOW_DEBUG_GRID and
+// click the canvas to read world coords, then paste them here.
+const MANUAL_START = null; // e.g. { x: -4.0, z: -0.8 }
+const MANUAL_GOAL  = null; // e.g. {  x:  3.5, z:  0.9 }
+
+const GRAVITY     = 18;
+const FRICTION    = 0.965;
+const RESTITUTION = 0.20;
+const MAX_TILT    = Math.PI / 7;
+const TILT_STEP   = 0.014;
+const TILT_LERP   = 0.10;
+
+/* ══════════════════════════════════════════════
+   RENDERER
+══════════════════════════════════════════════ */
+const canvas   = document.getElementById('gc');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(W, H);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace  = THREE.SRGBColorSpace;
+renderer.toneMapping       = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+
+/* ══════════════════════════════════════════════
+   SCENE / CAMERA / LIGHTS
+══════════════════════════════════════════════ */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xfff8f0);
+
+const camera = new THREE.PerspectiveCamera(32, W / H, 0.1, 100);
+camera.position.set(0, 14.0, 0);
+camera.rotation.set(-Math.PI / 2, 0, 0);
+
+scene.add(new THREE.AmbientLight(0xffe0c0, 3.5));
+
+const sun = new THREE.DirectionalLight(0xfff5e8, 3.5);
+sun.position.set(5, 12, 4);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left   = -8;  sun.shadow.camera.right = 8;
+sun.shadow.camera.top    =  4;  sun.shadow.camera.bottom = -4;
+sun.shadow.camera.near   =  0.5; sun.shadow.camera.far   = 25;
+sun.shadow.bias = -0.001;
+scene.add(sun);
+
+const fill = new THREE.DirectionalLight(0xffddb8, 1.6);
+fill.position.set(-5, 5, -3);
+scene.add(fill);
+
+const bounce = new THREE.DirectionalLight(0xffe8d0, 0.8);
+bounce.position.set(0, -4, 3);
+scene.add(bounce);
+
+/* ══════════════════════════════════════════════
+   MAZE GROUP
+══════════════════════════════════════════════ */
+const mazeGroup = new THREE.Group();
+scene.add(mazeGroup);
+
+/* ══════════════════════════════════════════════
+   MATERIALS
+══════════════════════════════════════════════ */
+const matWall = new THREE.MeshStandardMaterial({
+  color: 0x7B3A0A, roughness: 0.85, metalness: 0.10,
+  side: THREE.DoubleSide, // ensures raycasting detects walls regardless of face winding
+});
+const matFloor = new THREE.MeshStandardMaterial({
+  color: 0x4A1E06, roughness: 0.90, metalness: 0.00,
+});
+const matBall = new THREE.MeshStandardMaterial({
+  color: 0xf5f0ea, roughness: 0.30, metalness: 0.35,
+});
+const matStart = new THREE.MeshStandardMaterial({
+  color: 0x44dd66, roughness: 0.3,
+  emissive: new THREE.Color(0x007722), emissiveIntensity: 1.2,
+});
+const matGoal = new THREE.MeshStandardMaterial({
+  color: 0xffd700, roughness: 0.08, metalness: 0.96,
+  emissive: new THREE.Color(0xff5500), emissiveIntensity: 1.1,
+});
+
+/* ══════════════════════════════════════════════
+   COLLISION GRID
+   Built once at load: raycast downward against
+   wall mesh (maze_top). HIT = wall, MISS = corridor.
+   Floor mesh (maze_down) gives exact ball Y.
+══════════════════════════════════════════════ */
+let gridData  = null;
+let hitYsGrid = null;
+let floorY    = 0;
+
+function gIdx(xi, zi) { return zi * GCOLS + xi; }
+
+function gridXZ(xi, zi) {
+  return {
+    x: -MX + (xi / (GCOLS - 1)) * 2 * MX,
+    z: -MZ + (zi / (GROWS - 1)) * 2 * MZ,
+  };
+}
+
+function gridCell(x, z) {
+  return {
+    xi: Math.round((x + MX) / (2 * MX) * (GCOLS - 1)),
+    zi: Math.round((z + MZ) / (2 * MZ) * (GROWS - 1)),
+  };
+}
+
+function gridPassable(x, z) {
+  if (!gridData) return true;
+  const { xi, zi } = gridCell(x, z);
+  if (xi < 0 || xi >= GCOLS || zi < 0 || zi >= GROWS) return false;
+  return gridData[gIdx(xi, zi)] === 1;
+}
+
+function canMoveTo(x, z) { return gridPassable(x, z); }
+
+function cellFloorY(x, z) {
+  if (!hitYsGrid) return floorY;
+  const { xi, zi } = gridCell(x, z);
+  const cxi = Math.max(0, Math.min(GCOLS - 1, xi));
+  const czi = Math.max(0, Math.min(GROWS - 1, zi));
+  const hy = hitYsGrid[gIdx(cxi, czi)];
+  return (hy < 1e8) ? hy : floorY;
+}
+
+/* ══════════════════════════════════════════════
+   LOAD GLBs
+   maze_top = walls (hit=blocked)
+   maze_down = floor (always hit = ball Y)
+══════════════════════════════════════════════ */
+let wallScene  = null;
+let floorScene = null;
+let loadCount  = 0;
+
+const loader = new GLTFLoader();
+const _rc = new THREE.Raycaster();
+
+function onMeshLoaded() {
+  loadCount++;
+  if (loadCount < 2) return;
+
+  // Both loaded. Center children inside mazeGroup so local origin = maze center.
+  // (mazeGroup stays at world origin — physics uses mazeGroup local coords)
+  scene.updateMatrixWorld(true);
+  const fb = new THREE.Box3().setFromObject(floorScene);
+  const cx = (fb.min.x + fb.max.x) / 2;
+  const cz = (fb.min.z + fb.max.z) / 2;
+  wallScene.position.x  -= cx;  wallScene.position.z  -= cz;
+  floorScene.position.x -= cx;  floorScene.position.z -= cz;
+  scene.updateMatrixWorld(true);
+
+  // Compute playfield extents from centered floor (world = local since mazeGroup at origin)
+  const fb2 = new THREE.Box3().setFromObject(floorScene);
+  MX = (fb2.max.x - fb2.min.x) / 2;
+  MZ = (fb2.max.z - fb2.min.z) / 2;
+
+  document.getElementById('loading-msg').textContent = 'Budowanie mapy kolizji…';
+  buildGrid();
+  finishSetup();
+}
+
+loader.load('maze_top.glb',
+  gltf => {
+    wallScene = gltf.scene;
+    wallScene.scale.setScalar(MAZE_SCALE);
+    wallScene.traverse(n => {
+      if (n.isMesh) {
+        n.castShadow    = true;
+        n.receiveShadow = true;
+        n.material = matWall;
+        n.geometry.computeBoundsTree();
+      }
+    });
+    mazeGroup.add(wallScene);
+    onMeshLoaded();
+  },
+  xhr => {
+    if (xhr.total)
+      document.getElementById('loading-msg').textContent =
+        `Ładowanie: ${Math.round(xhr.loaded / xhr.total * 100)}%`;
+  },
+  err => {
+    document.getElementById('loading-msg').textContent = 'Błąd ścian: ' + (err.message || err);
+  }
+);
+
+loader.load('maze_down.glb',
+  gltf => {
+    floorScene = gltf.scene;
+    floorScene.scale.setScalar(MAZE_SCALE);
+    floorScene.traverse(n => {
+      if (n.isMesh) {
+        n.castShadow    = false;
+        n.receiveShadow = true;
+        n.material = matFloor;
+        n.geometry.computeBoundsTree();
+      }
+    });
+    mazeGroup.add(floorScene);
+    onMeshLoaded();
+  },
+  null,
+  err => {
+    document.getElementById('loading-msg').textContent = 'Błąd podłogi: ' + (err.message || err);
+  }
+);
+
+/* ══════════════════════════════════════════════
+   BUILD GRID
+   Raycast downward at each grid point.
+   maze_top HIT  → wall (0)
+   maze_top MISS → corridor (1)
+   maze_down     → floor Y for ball vertical position
+══════════════════════════════════════════════ */
+function buildGrid() {
+  gridData  = new Uint8Array(GCOLS * GROWS);
+  hitYsGrid = new Float32Array(GCOLS * GROWS).fill(1e9);
+
+  for (let zi = 0; zi < GROWS; zi++) {
+    for (let xi = 0; xi < GCOLS; xi++) {
+      const { x, z } = gridXZ(xi, zi);
+
+      // Ray origin in local mazeGroup space → convert to world
+      const wOrigin = mazeGroup.localToWorld(new THREE.Vector3(x, 20, z));
+      const wDir    = new THREE.Vector3(0, -1, 0)
+                        .transformDirection(mazeGroup.matrixWorld).normalize();
+      _rc.set(wOrigin, wDir);
+
+      // Wall check: miss = passable corridor
+      const wHits = _rc.intersectObject(wallScene, true);
+      gridData[gIdx(xi, zi)] = (wHits.length === 0) ? 1 : 0;
+
+      // Floor Y for ball height
+      const fHits = _rc.intersectObject(floorScene, true);
+      if (fHits.length > 0) {
+        const local = mazeGroup.worldToLocal(fHits[0].point.clone());
+        hitYsGrid[gIdx(xi, zi)] = local.y;
+      }
+    }
+  }
+
+  // Exclude outer border — right side intentionally left open to preserve the hole
+  const RIM = 8;
+  for (let zi = 0; zi < GROWS; zi++)
+    for (let xi = 0; xi < GCOLS; xi++)
+      if (xi < RIM || zi < RIM || zi >= GROWS - RIM)
+        gridData[gIdx(xi, zi)] = 0;
+
+  // Detect hole: passable cells in the right-side RIM (no wall mesh there = geometric gap)
+  holeFound = false;
+  let _hXiBest = GCOLS, _hZiSum = 0, _hZiCnt = 0;
+  for (let zi = RIM; zi < GROWS - RIM; zi++) {
+    for (let xi = GCOLS - RIM; xi < GCOLS; xi++) {
+      if (gridData[gIdx(xi, zi)] === 1) {
+        if (xi < _hXiBest) _hXiBest = xi;
+        _hZiSum += zi; _hZiCnt++;
+        holeFound = true;
+      }
+    }
+  }
+  if (holeFound) {
+    const p = gridXZ(_hXiBest, Math.round(_hZiSum / _hZiCnt));
+    holeX = p.x; holeZ = p.z;
+    console.log(`Hole at x=${holeX.toFixed(2)} z=${holeZ.toFixed(2)} (${_hZiCnt} cells)`);
+  }
+
+  // Global floor Y = minimum Y of passable cells
+  floorY = 1e9;
+  for (let i = 0; i < hitYsGrid.length; i++)
+    if (gridData[i] === 1 && hitYsGrid[i] < floorY) floorY = hitYsGrid[i];
+  if (floorY >= 1e9) floorY = 0;
+
+  const passCount = Array.from(gridData).reduce((s, v) => s + v, 0);
+  console.log(`Grid: ${passCount} passable cells | MX=${MX.toFixed(2)} MZ=${MZ.toFixed(2)} floorY=${floorY.toFixed(3)}`);
+}
+
+/* ══════════════════════════════════════════════
+   BALL + PHYSICS STATE
+══════════════════════════════════════════════ */
+let ballMesh = null;
+const ball = { x: 0, z: 0, vx: 0, vz: 0, dropping: false, dropY: 0 };
+let startX = 0, startZ = 0, goalX = 0, goalZ = 0;
+let holeFound = false, holeX = 0, holeZ = 0;
+
+function findPassablePos(xiMin, xiMax, ziMin, ziMax) {
+  for (let zi = ziMin; zi <= ziMax; zi++) {
+    for (let xi = xiMin; xi <= xiMax; xi++) {
+      if (xi < 0 || xi >= GCOLS || zi < 0 || zi >= GROWS) continue;
+      if (gridData[gIdx(xi, zi)] !== 1) continue;
+      const { x, z } = gridXZ(xi, zi);
+      if (canMoveTo(x, z)) return { x, z };
+    }
+  }
+  return { x: 0, z: 0 };
+}
+
+function finishSetup() {
+  const RIM = 2;
+
+  // Start: manual override or first passable cell (upper-left)
+  if (MANUAL_START) { startX = MANUAL_START.x; startZ = MANUAL_START.z; }
+  else {
+    const sp = findPassablePos(RIM, GCOLS - 1 - RIM, RIM, GROWS - 1 - RIM);
+    startX = sp.x; startZ = sp.z;
+  }
+
+  // Goal: manual override → hole (right-wall gap) → farthest Manhattan fallback
+  if (MANUAL_GOAL) { goalX = MANUAL_GOAL.x; goalZ = MANUAL_GOAL.z; }
+  else if (holeFound) { goalX = holeX; goalZ = holeZ; }
+  else {
+    let bestDist = -1; goalX = startX; goalZ = startZ;
+    for (let zi = 0; zi < GROWS; zi++) {
+      for (let xi = 0; xi < GCOLS; xi++) {
+        if (!gridData[gIdx(xi, zi)]) continue;
+        const { x, z } = gridXZ(xi, zi);
+        const d = Math.abs(x - startX) + Math.abs(z - startZ);
+        if (d > bestDist) { bestDist = d; goalX = x; goalZ = z; }
+      }
+    }
+  }
+
+  // Start marker
+  const mkS = new THREE.Mesh(new THREE.CircleGeometry(0.22, 24), matStart);
+  mkS.rotation.x = -Math.PI / 2;
+  mkS.position.set(startX, floorY + 0.05, startZ);
+  mazeGroup.add(mkS);
+
+  // Goal marker + ring
+  const mkG = new THREE.Mesh(new THREE.CircleGeometry(0.22, 24), matGoal);
+  mkG.rotation.x = -Math.PI / 2;
+  mkG.position.set(goalX, floorY + 0.05, goalZ);
+  mazeGroup.add(mkG);
+
+  const goalRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.28, 0.03, 8, 28),
+    new THREE.MeshStandardMaterial({
+      color: 0xffd700,
+      emissive: new THREE.Color(0xff6600), emissiveIntensity: 1.2,
+      roughness: 0.08, metalness: 0.95,
+    })
+  );
+  goalRing.rotation.x = -Math.PI / 2;
+  goalRing.position.set(goalX, floorY + 0.08, goalZ);
+  goalRing.name = 'goalRing';
+  mazeGroup.add(goalRing);
+
+  // Ball mesh
+  ballMesh = new THREE.Mesh(new THREE.SphereGeometry(BR, 32, 32), matBall);
+  ballMesh.castShadow = true;
+  mazeGroup.add(ballMesh);
+  resetBallPos();
+
+  document.getElementById('loading-msg').style.display = 'none';
+  lastT = performance.now();
+  console.log(`Start=(${startX.toFixed(2)}, ${startZ.toFixed(2)}) Goal=(${goalX.toFixed(2)}, ${goalZ.toFixed(2)})`);
+
+  if (SHOW_DEBUG_GRID) drawDebugGrid();
+}
+
+/* ══════════════════════════════════════════════
+   DEBUG GRID OVERLAY
+   Green = passable corridor, red = wall.
+   Orange box = detected hole (win zone).
+══════════════════════════════════════════════ */
+function drawDebugGrid() {
+  const dbg = document.getElementById('dbg-canvas');
+  if (!dbg) return;
+  dbg.width = W; dbg.height = H;
+  dbg.style.display = 'block';
+  const ctx = dbg.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  scene.updateMatrixWorld(true);
+  const v = new THREE.Vector3();
+
+  for (let zi = 0; zi < GROWS; zi++) {
+    for (let xi = 0; xi < GCOLS; xi++) {
+      const { x, z } = gridXZ(xi, zi);
+      v.set(x, floorY, z);
+      mazeGroup.localToWorld(v);
+      v.project(camera);
+      const px = (v.x + 1) / 2 * W;
+      const py = (1 - v.y) / 2 * H;
+      ctx.fillStyle = gridData[gIdx(xi, zi)] === 1
+        ? 'rgba(0,220,80,0.50)'
+        : 'rgba(200,0,0,0.12)';
+      ctx.fillRect(px - 2, py - 2, 4, 4);
+    }
+  }
+
+  // Highlight hole zone
+  if (holeFound) {
+    v.set(holeX, floorY, holeZ);
+    mazeGroup.localToWorld(v);
+    v.project(camera);
+    const px = (v.x + 1) / 2 * W;
+    const py = (1 - v.y) / 2 * H;
+    ctx.strokeStyle = '#ff8800';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(px - 10, py - 10, 20, 20);
+    ctx.fillStyle = '#ff8800';
+    ctx.font = '11px monospace';
+    ctx.fillText(`hole x=${holeX.toFixed(2)} z=${holeZ.toFixed(2)}`, px + 12, py + 4);
+  }
+}
+
+/* ══════════════════════════════════════════════
+   BALL HELPERS
+══════════════════════════════════════════════ */
+function resetBallPos() {
+  ball.x = startX; ball.z = startZ;
+  ball.vx = 0;     ball.vz = 0;
+  const sf = cellFloorY(startX, startZ);
+  ball.dropY    = sf + BR + 2.5;
+  ball.dropping = true;
+  if (ballMesh) ballMesh.position.set(ball.x, ball.dropY, ball.z);
+}
+
+/* ══════════════════════════════════════════════
+   PHYSICS
+   Ball in mazeGroup local XZ.
+   Gravity from tilt angles — flat model, no offset.
+══════════════════════════════════════════════ */
+let lastT = 0;
+let tiltX = 0, tiltZ = 0, targetTiltX = 0, targetTiltZ = 0;
+
+function applyTilt() {
+  tiltX += (targetTiltX - tiltX) * TILT_LERP;
+  tiltZ += (targetTiltZ - tiltZ) * TILT_LERP;
+  mazeGroup.rotation.x = tiltX;
+  mazeGroup.rotation.z = tiltZ;
+}
+
+function physicsTick(dt) {
+  const groundY = cellFloorY(ball.x, ball.z) + BR;
+
+  if (ball.dropping) {
+    ball.dropY -= 8 * dt;
+    if (ball.dropY <= groundY) { ball.dropY = groundY; ball.dropping = false; }
+    ballMesh.position.set(ball.x, ball.dropY, ball.z);
+    return;
+  }
+
+  const gX = GRAVITY * (-Math.sin(tiltZ));
+  const gZ = GRAVITY * ( Math.sin(tiltX));
+
+  const SUBSTEPS = 3;
+  const sdt = dt / SUBSTEPS;
+  for (let s = 0; s < SUBSTEPS; s++) {
+    ball.vx += gX * sdt;
+    ball.vz += gZ * sdt;
+
+    const f = Math.pow(FRICTION, sdt * 60);
+    ball.vx *= f; ball.vz *= f;
+
+    const newX = ball.x + ball.vx * sdt;
+    const newZ = ball.z + ball.vz * sdt;
+
+    if (canMoveTo(newX, ball.z)) { ball.x = newX; } else { ball.vx *= -RESTITUTION; }
+    if (canMoveTo(ball.x, newZ)) { ball.z = newZ; } else { ball.vz *= -RESTITUTION; }
+  }
+
+  ballMesh.position.set(ball.x, cellFloorY(ball.x, ball.z) + BR, ball.z);
+}
+
+/* ══════════════════════════════════════════════
+   TIMER
+══════════════════════════════════════════════ */
+let timerID = null, elapsed = 0;
+const fmt = () =>
+  `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`;
+function startTimer() {
+  elapsed = 0; clearInterval(timerID);
+  timerID = setInterval(() => { elapsed++; document.getElementById('hud-timer').textContent = fmt(); }, 1000);
+}
+function stopTimer() { clearInterval(timerID); }
+
+/* ══════════════════════════════════════════════
+   GAME STATE
+══════════════════════════════════════════════ */
+let state = 'ready';
+const scrReady = document.getElementById('scr-ready');
+const scrWin   = document.getElementById('scr-win');
+const hud      = document.getElementById('hud');
+
+function startGame() {
+  if (!ballMesh) {
+    document.getElementById('loading-msg').style.display = 'block';
+    document.getElementById('loading-msg').textContent = 'Proszę czekać — model się wczytuje…';
+    return;
+  }
+  scrReady.classList.remove('on');
+  hud.classList.add('on');
+  tiltX = targetTiltX = 0; tiltZ = targetTiltZ = 0;
+  mazeGroup.rotation.set(0, 0, 0);
+  resetBallPos();
+  lastT = performance.now();
+  state = 'playing';
+  startTimer();
+}
+
+function winGame() {
+  state = 'win'; stopTimer();
+  document.getElementById('win-txt').innerHTML =
+    `Czas: <strong>${fmt()}</strong> — gratulacje!<br>Odbierz swoją nagrodę Lindt!`;
+  scrWin.classList.add('on');
+}
+
+function restart() {
+  scrWin.classList.remove('on');
+  hud.classList.remove('on');
+  document.getElementById('hud-timer').textContent = '00:00';
+  stopTimer();
+  tiltX = targetTiltX = 0; tiltZ = targetTiltZ = 0;
+  mazeGroup.rotation.set(0, 0, 0);
+  state = 'ready';
+  scrReady.classList.add('on');
+}
+
+document.getElementById('btn-play').addEventListener('click', startGame);
+document.getElementById('btn-retry').addEventListener('click', restart);
+
+/* ══════════════════════════════════════════════
+   INPUT
+══════════════════════════════════════════════ */
+const keys = {};
+document.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) e.preventDefault();
+  if (e.key === 'Escape' && state === 'playing') {
+    resetBallPos(); targetTiltX = 0; targetTiltZ = 0;
+  }
+});
+document.addEventListener('keyup', e => { keys[e.key] = false; });
+
+/* ══════════════════════════════════════════════
+   RENDER LOOP
+══════════════════════════════════════════════ */
+scrReady.classList.add('on');
+lastT = performance.now();
+
+renderer.setAnimationLoop(now => {
+  const dt = Math.min((now - lastT) / 1000, 0.05);
+  lastT = now;
+
+  if (state === 'playing') {
+    if (keys['ArrowLeft'])  targetTiltZ = Math.min( MAX_TILT, targetTiltZ + TILT_STEP);
+    if (keys['ArrowRight']) targetTiltZ = Math.max(-MAX_TILT, targetTiltZ - TILT_STEP);
+    if (keys['ArrowUp'])    targetTiltX = Math.max(-MAX_TILT, targetTiltX - TILT_STEP);
+    if (keys['ArrowDown'])  targetTiltX = Math.min( MAX_TILT, targetTiltX + TILT_STEP);
+
+    applyTilt();
+    physicsTick(dt);
+
+    // Win check
+    if (!ball.dropping) {
+      if (holeFound) {
+        // Ball rolled into the hole (right-wall exit)
+        if (ball.x > holeX - 0.35 && Math.abs(ball.z - holeZ) < 0.9) winGame();
+      } else {
+        const dx = ball.x - goalX, dz = ball.z - goalZ;
+        if (dx * dx + dz * dz < 0.45 * 0.45) winGame();
+      }
+    }
+
+    // Pulse goal ring
+    const ring = mazeGroup.getObjectByName('goalRing');
+    if (ring) ring.material.emissiveIntensity = 0.6 + 0.6 * Math.sin(now * 0.004);
+  }
+
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>
