@@ -23,35 +23,105 @@
     #gc { position: absolute; inset: 0; }
 
     #hud {
-      position: absolute; top: 0; left: 0; right: 0; height: 36px;
-      background: rgba(255,255,255,0.85); backdrop-filter: blur(3px);
-      display: none; align-items: center; justify-content: space-between;
-      padding: 0 24px; z-index: 20;
-      font: 500 12px/1 'Georgia', serif;
-      color: #4a1800; letter-spacing: 2px;
-      border-bottom: 1px solid rgba(160,100,40,0.15);
+      position: absolute; inset: 0;
+      display: none; pointer-events: none;
+      z-index: 20; font-family: 'Georgia', serif; color: #4a1800;
     }
-    #hud.on { display: flex; }
+    #hud.on { display: block; }
+
+    #hud-title {
+      position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+      font: 500 13px/1 'Georgia', serif; letter-spacing: 3px; color: #4a1800;
+      white-space: nowrap;
+    }
+    #hud-hint {
+      position: absolute; left: 216px; top: 50%; transform: translateY(-50%);
+      font: 400 15px/1.7 'Georgia', serif; color: rgba(60,20,0,0.55);
+      letter-spacing: 0.3px; max-width: 160px;
+    }
+    #hud-timer {
+      position: absolute; right: 258px; top: 50%; transform: translateY(-50%);
+      font: 400 38px/1 'Georgia', serif; color: #3a1200; letter-spacing: 2px;
+    }
 
     .screen {
       position: absolute; inset: 0;
+      display: none;
+      z-index: 40;
+    }
+    .screen.on { display: block; }
+
+    /* ── Welcome screen ── */
+    #scr-ready {
+      background: url('background.jpg') 50% 50% / 74% no-repeat;
+    }
+    #scr-ready h2 {
+      position: absolute;
+      left: 19%; top: 49%;
+      transform: translateY(-50%);
+      font: 400 47px/1.15 'Georgia', serif;
+      color: #fff;
+      text-shadow: 0 2px 18px rgba(0,0,0,0.55);
+      letter-spacing: 1px;
+      margin: 0; white-space: nowrap;
+    }
+    #scr-ready .right-col {
+      position: absolute;
+      right: 16%; bottom: 16%;
+      display: flex; flex-direction: column; align-items: flex-end; gap: 14px;
+    }
+    #loading-msg { font: 13px 'Georgia', serif; color: rgba(255,255,255,0.75); letter-spacing: .5px; }
+
+    /* ── Win screen ── */
+    #scr-win {
+      background: #fff;
       display: none; flex-direction: column;
       align-items: center; justify-content: center;
       font-family: 'Georgia', serif; text-align: center;
-      z-index: 40;
     }
-    .screen.on { display: flex; }
-    .screen h2 { font-size: 38px; font-weight: 400; letter-spacing: 5px; color: #3a1200; margin-bottom: 8px; }
-    .screen p  { font-size: 13px; color: #7a4020; margin-bottom: 22px; line-height: 1.8; }
+    #scr-win.on { display: flex; }
+
+    #win-gif-wrap {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      pointer-events: none;
+      transition: opacity 0.6s;
+    }
+    #win-gif-wrap.hidden { opacity: 0; }
+    #win-gif { max-width: 60%; max-height: 60%; }
+
+    #win-content {
+      display: flex; flex-direction: column; align-items: center; gap: 14px;
+      opacity: 0; transition: opacity 0.6s;
+    }
+    #win-content.visible { opacity: 1; }
+
+    #win-time { font-size: 15px; color: #888; margin: 0; letter-spacing: 1px; }
+    #win-heading { font-size: 32px; font-weight: 400; color: #3a1200; margin: 0; letter-spacing: 2px; }
+    #win-sub { font-size: 14px; color: #7a4020; margin: 0; }
+
+    #promo-wrap {
+      display: flex; align-items: center; gap: 10px;
+      border: 1.5px dashed #c8960c; padding: 12px 22px;
+      background: #fffbf2; margin: 4px 0;
+    }
+    #promo-code { font: 700 20px/1 'Courier New', monospace; color: #3a1200; letter-spacing: 3px; }
+    #btn-copy {
+      background: none; border: 1px solid #c8960c; color: #c8960c;
+      font: 11px 'Georgia', serif; padding: 5px 10px; cursor: pointer;
+      letter-spacing: 1px; transition: background .15s, color .15s;
+    }
+    #btn-copy:hover { background: #c8960c; color: #fff; }
+    #copy-confirm { font-size: 11px; color: #888; min-height: 14px; }
+
     .gold-btn {
-      background: linear-gradient(135deg, #a87008, #eed858 50%, #a87008);
-      color: #2a0e00; border: none; padding: 13px 44px;
-      font: 700 12px/1 'Georgia', serif; letter-spacing: 2.5px;
-      text-transform: uppercase; cursor: pointer; transition: filter .15s;
+      background: #c8960c;
+      color: #fff; border: none; padding: 14px 71px;
+      font: 600 16px/1 'Georgia', serif; letter-spacing: 1px;
+      cursor: pointer; transition: background .15s;
     }
-    .gold-btn:hover { filter: brightness(1.1); }
-    .sub { font: 11px 'Georgia', serif; color: #a07848; margin-top: 10px; letter-spacing: .5px; }
-    #loading-msg { font: 13px 'Georgia', serif; color: #7a4020; margin-bottom: 16px; }
+    .gold-btn:hover { background: #a87008; }
+    .sub { font: 11px 'Georgia', serif; color: rgba(255,255,255,0.65); letter-spacing: .5px; }
   </style>
 </head>
 <body>
@@ -60,23 +130,35 @@
   <canvas id="dbg-canvas" style="position:absolute;inset:0;pointer-events:none;display:none;"></canvas>
 
   <div id="hud">
-    <span>LABIRYNT LINDT</span>
-    <span id="hud-timer">00:00</span>
+    <div id="hud-title">CHOCOLATE MAZE</div>
+    <div id="hud-hint">The ball wants to escape the maze, help it. Use the arrow keys.</div>
+    <div id="hud-timer">00:00</div>
   </div>
 
-  <div class="screen" id="scr-ready" style="background:rgba(255,255,255,0.90)">
-    <h2>Labirynt</h2>
-    <p>Pochylaj czekoladowy labirynt,<br>
-       aby przeprowadzić kulkę od <strong>startu</strong> do <strong>mety</strong>.</p>
-    <div id="loading-msg">Ładowanie modelu…</div>
-    <button class="gold-btn" id="btn-play">ZAGRAJ</button>
-    <div class="sub">Strzałki ← → ↑ ↓ · ESC = reset kulki</div>
+  <div class="screen" id="scr-ready">
+    <h2 id="ready-title">Chocolate Maze</h2>
+    <div class="right-col" id="ready-right">
+      <div id="loading-msg">Ładowanie modelu…</div>
+      <button class="gold-btn" id="btn-play">Let's play</button>
+      <div class="sub">← → ↑ ↓ &nbsp;·&nbsp; ESC = reset</div>
+    </div>
   </div>
 
-  <div class="screen" id="scr-win" style="background:rgba(255,255,255,0.93)">
-    <h2>Brawo!</h2>
-    <p id="win-txt"></p>
-    <button class="gold-btn" id="btn-retry">ZAGRAJ JESZCZE RAZ</button>
+  <div class="screen" id="scr-win">
+    <div id="win-gif-wrap">
+      <img id="win-gif" src="hurray.gif" alt="">
+    </div>
+    <div id="win-content">
+      <p id="win-time">Time: 00:00</p>
+      <h2 id="win-heading">Thank you!</h2>
+      <p id="win-sub">Claim your Lindt reward!</p>
+      <div id="promo-wrap">
+        <span id="promo-code">LINDT-MAZE-2026</span>
+        <button id="btn-copy">COPY</button>
+      </div>
+      <div id="copy-confirm"></div>
+      <button class="gold-btn" id="btn-retry">Play it again!</button>
+    </div>
   </div>
 </div>
 
@@ -85,12 +167,14 @@
   "imports": {
     "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
     "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/",
-    "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.6.8/build/index.module.js"
+    "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.6.8/build/index.module.js",
+    "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.19/dist/lil-gui.esm.js"
   }
 }
 </script>
 <script type="module">
 import * as THREE from 'three';
+import GUI from 'lil-gui';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 
@@ -135,37 +219,42 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace  = THREE.SRGBColorSpace;
 renderer.toneMapping       = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.1;
+renderer.toneMappingExposure = 1.15;
 
 /* ══════════════════════════════════════════════
    SCENE / CAMERA / LIGHTS
 ══════════════════════════════════════════════ */
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xfff8f0);
+scene.background = new THREE.Color(0xffffff);
 
 const camera = new THREE.PerspectiveCamera(32, W / H, 0.1, 100);
 camera.position.set(0, 14.0, 0);
 camera.rotation.set(-Math.PI / 2, 0, 0);
 
-scene.add(new THREE.AmbientLight(0xffe0c0, 3.5));
+const ambLight = new THREE.AmbientLight(0xfff4ec, 2.80);
+scene.add(ambLight);
 
-const sun = new THREE.DirectionalLight(0xfff5e8, 3.5);
-sun.position.set(5, 12, 4);
+const sun = new THREE.DirectionalLight(0xfff8f2, 1.70);
+sun.position.set(8.0, 14.0, 2.0);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.left   = -8;  sun.shadow.camera.right = 8;
-sun.shadow.camera.top    =  4;  sun.shadow.camera.bottom = -4;
-sun.shadow.camera.near   =  0.5; sun.shadow.camera.far   = 25;
+sun.shadow.camera.left   = -10;  sun.shadow.camera.right = 10;
+sun.shadow.camera.top    =  10;  sun.shadow.camera.bottom = -10;
+sun.shadow.camera.near   =  0.5; sun.shadow.camera.far   = 35;
 sun.shadow.bias = -0.001;
 scene.add(sun);
 
-const fill = new THREE.DirectionalLight(0xffddb8, 1.6);
+const fill = new THREE.DirectionalLight(0xffe0cc, 0.80);
 fill.position.set(-5, 5, -3);
 scene.add(fill);
 
-const bounce = new THREE.DirectionalLight(0xffe8d0, 0.8);
+const bounce = new THREE.DirectionalLight(0xffd8b8, 0.00);
 bounce.position.set(0, -4, 3);
 scene.add(bounce);
+
+const sun2 = new THREE.DirectionalLight(0xffffff, 7.60);
+sun2.position.set(-8.0, 5.5, -3.0);
+scene.add(sun2);
 
 /* ══════════════════════════════════════════════
    MAZE GROUP
@@ -176,15 +265,31 @@ scene.add(mazeGroup);
 /* ══════════════════════════════════════════════
    MATERIALS
 ══════════════════════════════════════════════ */
+const _texLoader = new THREE.TextureLoader();
+const _chocTex = _texLoader.load('chocolate_texture.png', tex => {
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1, 1);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  // Trigger material updates once texture is ready
+  matWall.needsUpdate  = true;
+  matFloor.needsUpdate = true;
+});
+
 const matWall = new THREE.MeshStandardMaterial({
-  color: 0x7B3A0A, roughness: 0.85, metalness: 0.10,
-  side: THREE.DoubleSide, // ensures raycasting detects walls regardless of face winding
+  map: _chocTex,
+  color: 0xcab5aa,
+  roughness: 0.87,
+  metalness: 0.37,
+  side: THREE.DoubleSide,
 });
 const matFloor = new THREE.MeshStandardMaterial({
-  color: 0x4A1E06, roughness: 0.90, metalness: 0.00,
+  map: _chocTex,
+  color: 0x704c38,
+  roughness: 0.82,
+  metalness: 0.02,
 });
 const matBall = new THREE.MeshStandardMaterial({
-  color: 0xf5f0ea, roughness: 0.30, metalness: 0.35,
+  color: 0xf5f0ea, roughness: 0.08, metalness: 0.85,
 });
 const matStart = new THREE.MeshStandardMaterial({
   color: 0x44dd66, roughness: 0.3,
@@ -194,6 +299,273 @@ const matGoal = new THREE.MeshStandardMaterial({
   color: 0xffd700, roughness: 0.08, metalness: 0.96,
   emissive: new THREE.Color(0xff5500), emissiveIntensity: 1.1,
 });
+
+/* ══════════════════════════════════════════════
+   SCENE EDITOR (lil-gui)
+   Press G to toggle panel visibility.
+   Click "Kopiuj ustawienia" to print final
+   values to console — paste them into the code.
+══════════════════════════════════════════════ */
+function setupGUI() {
+  const gui = new GUI({ title: 'Scene Editor', width: 280 });
+
+  // ── Lights ──────────────────────────────────
+  const lf = gui.addFolder('Światła');
+  const lp = {
+    ambIntensity:    ambLight.intensity,
+    ambColor:        '#' + ambLight.color.getHexString(),
+    sunIntensity:    sun.intensity,
+    sunX: sun.position.x, sunZ: sun.position.z,
+    fillIntensity:   fill.intensity,
+    bounceIntensity: bounce.intensity,
+    exposure:        renderer.toneMappingExposure,
+  };
+  const bgp = { bgColor: '#' + scene.background.getHexString() };
+  lf.addColor(bgp, 'bgColor').name('Tło (kolor)').onChange(v => scene.background.set(v));
+
+  lf.add(lp, 'ambIntensity',    0, 6,  0.05).name('Ambient intensity').onChange(v => ambLight.intensity = v);
+  lf.addColor(lp, 'ambColor').name('Ambient kolor').onChange(v => ambLight.color.set(v));
+  lf.add(lp, 'sunIntensity',    0, 10, 0.1) .name('Sun intensity')    .onChange(v => sun.intensity = v);
+  lf.add(lp, 'sunX',           -10, 10, 0.5).name('Sun pozycja X')    .onChange(v => { sun.position.x = v; });
+  lf.add(lp, 'sunZ',           -10, 10, 0.5).name('Sun pozycja Z')    .onChange(v => { sun.position.z = v; });
+  lf.add(lp, 'fillIntensity',   0, 4,  0.05).name('Fill intensity')   .onChange(v => fill.intensity = v);
+  lf.add(lp, 'bounceIntensity', 0, 3,  0.05).name('Bounce intensity') .onChange(v => bounce.intensity = v);
+  lf.add(lp, 'exposure',        0, 3,  0.05).name('Ekspozycja')       .onChange(v => renderer.toneMappingExposure = v);
+
+  const s2f = gui.addFolder('Światło 2 (dodatkowe)');
+  const s2p = {
+    intensity: sun2.intensity,
+    color: '#' + sun2.color.getHexString(),
+    posX: sun2.position.x,
+    posY: sun2.position.y,
+    posZ: sun2.position.z,
+  };
+  s2f.add(s2p, 'intensity', 0, 8, 0.05).name('Intensywność').onChange(v => sun2.intensity = v);
+  s2f.addColor(s2p, 'color').name('Kolor').onChange(v => sun2.color.set(v));
+  s2f.add(s2p, 'posX', -12, 12, 0.5).name('Pozycja X').onChange(v => sun2.position.x = v);
+  s2f.add(s2p, 'posY', -5,  20, 0.5).name('Pozycja Y').onChange(v => sun2.position.y = v);
+  s2f.add(s2p, 'posZ', -12, 12, 0.5).name('Pozycja Z').onChange(v => sun2.position.z = v);
+
+  // ── Wall material ────────────────────────────
+  const wf = gui.addFolder('Materiał — ścianki');
+  const wp = {
+    color:     '#' + matWall.color.getHexString(),
+    roughness: matWall.roughness,
+    metalness: matWall.metalness,
+  };
+  wf.addColor(wp, 'color')    .name('Kolor tint')  .onChange(v => matWall.color.set(v));
+  wf.add(wp, 'roughness', 0, 1, 0.01).name('Roughness').onChange(v => matWall.roughness = v);
+  wf.add(wp, 'metalness', 0, 1, 0.01).name('Metalness').onChange(v => matWall.metalness = v);
+
+  // ── Floor material ───────────────────────────
+  const ff = gui.addFolder('Materiał — kanały');
+  const fp = {
+    color:     '#' + matFloor.color.getHexString(),
+    roughness: matFloor.roughness,
+    metalness: matFloor.metalness,
+  };
+  ff.addColor(fp, 'color')    .name('Kolor tint')  .onChange(v => matFloor.color.set(v));
+  ff.add(fp, 'roughness', 0, 1, 0.01).name('Roughness').onChange(v => matFloor.roughness = v);
+  ff.add(fp, 'metalness', 0, 1, 0.01).name('Metalness').onChange(v => matFloor.metalness = v);
+
+  // ── Copy button ──────────────────────────────
+  const actions = {
+    kopiujUstawienia() {
+      const hex = c => '#' + new THREE.Color(c).getHexString();
+      console.log(`
+// ── wklej do kodu ──
+scene.remove(ambLight);
+ambLight.intensity = ${ambLight.intensity.toFixed(2)};
+ambLight.color.set('${hex(ambLight.color)}');
+scene.add(ambLight);
+sun.intensity = ${sun.intensity.toFixed(2)};
+sun.position.set(${sun.position.x.toFixed(1)}, ${sun.position.y.toFixed(1)}, ${sun.position.z.toFixed(1)});
+fill.intensity = ${fill.intensity.toFixed(2)};
+bounce.intensity = ${bounce.intensity.toFixed(2)};
+renderer.toneMappingExposure = ${renderer.toneMappingExposure.toFixed(2)};
+sun2.intensity = ${sun2.intensity.toFixed(2)}; sun2.color.set('${hex(sun2.color)}'); sun2.position.set(${sun2.position.x.toFixed(1)}, ${sun2.position.y.toFixed(1)}, ${sun2.position.z.toFixed(1)});
+matWall.color.set('${hex(matWall.color)}');  matWall.roughness = ${matWall.roughness.toFixed(2)};  matWall.metalness = ${matWall.metalness.toFixed(2)};
+matFloor.color.set('${hex(matFloor.color)}'); matFloor.roughness = ${matFloor.roughness.toFixed(2)}; matFloor.metalness = ${matFloor.metalness.toFixed(2)};
+scene.background.set('${hex(scene.background)}');
+      `.trim());
+      alert('Ustawienia skopiowane do konsoli (F12)');
+    }
+  };
+  gui.add(actions, 'kopiujUstawienia').name('📋 Kopiuj ustawienia');
+
+  gui.hide();
+
+  // G = toggle visibility
+  document.addEventListener('keydown', e => {
+    if (e.key === 'g' || e.key === 'G') gui.show(gui._hidden);
+  });
+}
+setupGUI();
+
+/* ══════════════════════════════════════════════
+   LAYOUT EDITOR — Welcome screen positioning
+══════════════════════════════════════════════ */
+function setupLayoutGUI() {
+  const title = document.getElementById('ready-title');
+  const rightCol = document.getElementById('ready-right');
+  const btnPlay = document.getElementById('btn-play');
+
+  const scrReady = document.getElementById('scr-ready');
+
+  const p = {
+    titleLeft:    19,
+    titleTop:     49,
+    titleSize:    47,
+    btnRight:     16,
+    btnBottom:    16,
+    btnFontSize:  16,
+    btnPadV:      14,
+    btnPadH:      71,
+    bgSize:       74,
+    bgPosX:       50,
+    bgPosY:       50,
+  };
+
+  function applyTitle() {
+    title.style.left     = p.titleLeft + '%';
+    title.style.top      = p.titleTop  + '%';
+    title.style.fontSize = p.titleSize + 'px';
+  }
+  function applyBtn() {
+    rightCol.style.right    = p.btnRight  + '%';
+    rightCol.style.bottom   = p.btnBottom + '%';
+    btnPlay.style.fontSize  = p.btnFontSize + 'px';
+    btnPlay.style.padding   = p.btnPadV + 'px ' + p.btnPadH + 'px';
+  }
+  function applyBg() {
+    scrReady.style.backgroundSize     = p.bgSize + '%';
+    scrReady.style.backgroundPosition = p.bgPosX + '% ' + p.bgPosY + '%';
+  }
+  applyTitle(); applyBtn(); applyBg();
+
+  const lg = new GUI({ title: 'Layout ekranu', width: 240 });
+
+  const bgf = lg.addFolder('Tło (zdjęcie)');
+  bgf.add(p, 'bgSize',  50, 300, 1).name('Skala %').onChange(applyBg);
+  bgf.add(p, 'bgPosX',   0, 100, 0.5).name('Pozycja X %').onChange(applyBg);
+  bgf.add(p, 'bgPosY',   0, 100, 0.5).name('Pozycja Y %').onChange(applyBg);
+
+  const tf = lg.addFolder('Tytuł');
+  tf.add(p, 'titleLeft',  0, 80, 0.5).name('Lewo %').onChange(applyTitle);
+  tf.add(p, 'titleTop',   0, 100, 0.5).name('Góra %').onChange(applyTitle);
+  tf.add(p, 'titleSize', 20, 120, 1).name('Rozmiar px').onChange(applyTitle);
+
+  const bf = lg.addFolder('Przycisk');
+  bf.add(p, 'btnRight',   0, 80, 0.5).name('Prawo %').onChange(applyBtn);
+  bf.add(p, 'btnBottom',  0, 100, 0.5).name('Dół %').onChange(applyBtn);
+  bf.add(p, 'btnFontSize', 10, 36, 1).name('Font px').onChange(applyBtn);
+  bf.add(p, 'btnPadV',   4, 40, 1).name('Padding V').onChange(applyBtn);
+  bf.add(p, 'btnPadH',   10, 80, 1).name('Padding H').onChange(applyBtn);
+
+  const copyAct = {
+    kopiuj() {
+      console.log(`
+// ── layout ekranu powitalnego ──
+#scr-ready { background-size: ${p.bgSize}%; background-position: ${p.bgPosX}% ${p.bgPosY}%; }
+#scr-ready h2 { left: ${p.titleLeft}%; top: ${p.titleTop}%; font-size: ${p.titleSize}px; }
+#scr-ready .right-col { right: ${p.btnRight}%; bottom: ${p.btnBottom}%; }
+.gold-btn { font-size: ${p.btnFontSize}px; padding: ${p.btnPadV}px ${p.btnPadH}px; }
+      `.trim());
+      alert('Layout skopiowany do konsoli (F12)');
+    }
+  };
+  lg.add(copyAct, 'kopiuj').name('📋 Kopiuj layout');
+
+  lg.hide();
+  document.getElementById('btn-play').addEventListener('click', () => lg.hide());
+  lg.domElement.style.top = '10px';
+  lg.domElement.style.left = '10px';
+  lg.domElement.style.right = 'auto';
+
+  // L = toggle layout panel
+  document.addEventListener('keydown', e => {
+    if (e.key === 'l' || e.key === 'L') lg.show(lg._hidden);
+  });
+}
+setupLayoutGUI();
+
+/* ══════════════════════════════════════════════
+   HUD EDITOR
+══════════════════════════════════════════════ */
+function setupHudGUI() {
+  const elTitle  = document.getElementById('hud-title');
+  const elHint   = document.getElementById('hud-hint');
+  const elTimer  = document.getElementById('hud-timer');
+
+  const p = {
+    titleTop:    14,   // px from top
+    titleSize:   13,   // px
+
+    hintLeft:    216,
+    hintTopPct:  50,
+    hintSize:    15,
+
+    timerRight:  258,
+    timerTopPct: 50,
+    timerSize:   38,
+  };
+
+  function applyTitle() {
+    elTitle.style.top      = p.titleTop  + 'px';
+    elTitle.style.fontSize = p.titleSize + 'px';
+  }
+  function applyHint() {
+    elHint.style.left      = p.hintLeft   + 'px';
+    elHint.style.top       = p.hintTopPct + '%';
+    elHint.style.fontSize  = p.hintSize   + 'px';
+  }
+  function applyTimer() {
+    elTimer.style.right    = p.timerRight   + 'px';
+    elTimer.style.top      = p.timerTopPct  + '%';
+    elTimer.style.fontSize = p.timerSize    + 'px';
+  }
+  applyTitle(); applyHint(); applyTimer();
+
+  const hg = new GUI({ title: 'HUD rozgrywki', width: 240 });
+
+  const tf = hg.addFolder('Tytuł (środek)');
+  tf.add(p, 'titleTop',  0, 60, 1).name('Od góry px').onChange(applyTitle);
+  tf.add(p, 'titleSize', 8, 32, 1).name('Rozmiar px').onChange(applyTitle);
+
+  const hf = hg.addFolder('Podpowiedź (lewo)');
+  hf.add(p, 'hintLeft',   0, 300, 1).name('Od lewej px').onChange(applyHint);
+  hf.add(p, 'hintTopPct', 0, 100, 0.5).name('Góra %').onChange(applyHint);
+  hf.add(p, 'hintSize',   8, 24,  1).name('Rozmiar px').onChange(applyHint);
+
+  const tmf = hg.addFolder('Timer (prawo)');
+  tmf.add(p, 'timerRight',   0, 300, 1).name('Od prawej px').onChange(applyTimer);
+  tmf.add(p, 'timerTopPct',  0, 100, 0.5).name('Góra %').onChange(applyTimer);
+  tmf.add(p, 'timerSize',   16, 80,  1).name('Rozmiar px').onChange(applyTimer);
+
+  const copyAct = {
+    kopiuj() {
+      console.log(`
+// ── HUD rozgrywki ──
+#hud-title  { top: ${p.titleTop}px; font-size: ${p.titleSize}px; }
+#hud-hint   { left: ${p.hintLeft}px; top: ${p.hintTopPct}%; font-size: ${p.hintSize}px; }
+#hud-timer  { right: ${p.timerRight}px; top: ${p.timerTopPct}%; font-size: ${p.timerSize}px; }
+      `.trim());
+      alert('Skopiowano do konsoli (F12)');
+    }
+  };
+  hg.add(copyAct, 'kopiuj').name('📋 Kopiuj HUD');
+
+  hg.hide();
+  hg.domElement.style.top   = '10px';
+  hg.domElement.style.left  = '10px';
+  hg.domElement.style.right = 'auto';
+
+  // H = toggle HUD editor
+  document.addEventListener('keydown', e => {
+    if (e.key === 'h' || e.key === 'H') hg.show(hg._hidden);
+  });
+}
+setupHudGUI();
 
 /* ══════════════════════════════════════════════
    COLLISION GRID
@@ -423,7 +795,7 @@ function buildGrid() {
 /* ══════════════════════════════════════════════
    BALL + PHYSICS STATE
 ══════════════════════════════════════════════ */
-let ballMesh = null;
+let ballMesh = null, blobMesh = null;
 const ball = { x: 0, z: 0, vx: 0, vz: 0, dropping: false, dropY: 0 };
 let startX = 0, startZ = 0, goalX = 0, goalZ = 0;
 let holeFound = false, holeX = 0, holeZ = 0;
@@ -477,6 +849,15 @@ function finishSetup() {
   ballMesh = new THREE.Mesh(new THREE.SphereGeometry(BR, 32, 32), matBall);
   ballMesh.castShadow = true;
   mazeGroup.add(ballMesh);
+
+  // Blob shadow — dark disc just above floor
+  const blobMat = new THREE.MeshBasicMaterial({
+    color: 0x000000, transparent: true, opacity: 0.28,
+    depthWrite: false,
+  });
+  blobMesh = new THREE.Mesh(new THREE.CircleGeometry(BR * 1.1, 24), blobMat);
+  blobMesh.rotation.x = -Math.PI / 2;
+  mazeGroup.add(blobMesh);
   resetBallPos();
 
   document.getElementById('loading-msg').style.display = 'none';
@@ -567,6 +948,7 @@ function physicsTick(dt) {
     ball.dropY -= 8 * dt;
     if (ball.dropY <= groundY) { ball.dropY = groundY; ball.dropping = false; }
     ballMesh.position.set(ball.x, ball.dropY, ball.z);
+    blobMesh.position.set(ball.x, groundY - BR + 0.005, ball.z);
     return;
   }
 
@@ -602,7 +984,9 @@ function physicsTick(dt) {
   if (ball.z < -(MZ - EDGE)) { ball.z = -(MZ - EDGE); ball.vz =  Math.abs(ball.vz) * RESTITUTION; }
   if (ball.z >  (MZ - EDGE)) { ball.z =  (MZ - EDGE); ball.vz = -Math.abs(ball.vz) * RESTITUTION; }
 
-  ballMesh.position.set(ball.x, cellFloorY(ball.x, ball.z) + BR, ball.z);
+  const fy = cellFloorY(ball.x, ball.z);
+  ballMesh.position.set(ball.x, fy + BR, ball.z);
+  blobMesh.position.set(ball.x, fy + 0.005, ball.z);
 }
 
 /* ══════════════════════════════════════════════
@@ -643,9 +1027,24 @@ function startGame() {
 
 function winGame() {
   state = 'win'; stopTimer();
-  document.getElementById('win-txt').innerHTML =
-    `Czas: <strong>${fmt()}</strong> — gratulacje!<br>Odbierz swoją nagrodę Lindt!`;
+  document.getElementById('win-time').textContent = 'Time: ' + fmt();
+
+  // Reset GIF by re-setting src (forces replay from frame 1)
+  const gifImg = document.getElementById('win-gif');
+  const gifWrap = document.getElementById('win-gif-wrap');
+  const winContent = document.getElementById('win-content');
+  gifImg.src = '';
+  gifImg.src = 'hurray.gif';
+  gifWrap.classList.remove('hidden');
+  winContent.classList.remove('visible');
+
   scrWin.classList.add('on');
+
+  // Hide GIF after ~3s, fade in content
+  setTimeout(() => {
+    gifWrap.classList.add('hidden');
+    setTimeout(() => winContent.classList.add('visible'), 600);
+  }, 3000);
 }
 
 function restart() {
@@ -661,6 +1060,15 @@ function restart() {
 
 document.getElementById('btn-play').addEventListener('click', startGame);
 document.getElementById('btn-retry').addEventListener('click', restart);
+
+document.getElementById('btn-copy').addEventListener('click', () => {
+  const code = document.getElementById('promo-code').textContent;
+  navigator.clipboard.writeText(code).then(() => {
+    const el = document.getElementById('copy-confirm');
+    el.textContent = 'Copied!';
+    setTimeout(() => { el.textContent = ''; }, 2000);
+  });
+});
 
 /* ══════════════════════════════════════════════
    INPUT
