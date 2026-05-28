@@ -103,14 +103,14 @@ THREE.Mesh.prototype.raycast = acceleratedRaycast;
 ══════════════════════════════════════════════ */
 const W = 1440, H = 400;
 const MAZE_SCALE = 17;   // scale to match old game dimensions (~MX=6, MZ=2.5)
-const BR = 0.12;         // ball radius — smaller than wall height so ball sits inside corridors
+const BR = 0.20;         // ball radius — smaller than wall height so ball sits inside corridors
+const HOLE_X_NUDGE = 0.5; // shift hole marker/win-zone right into the geometric gap
 
 let MX = 6.0, MZ = 2.5; // updated after model loads
 
 const GCOLS = 128, GROWS = 56; // double resolution → cellWidth≈0.095, max wall penetration <0.05
 
-// Debug: show passable-cell overlay. Disable before shipping.
-const SHOW_DEBUG_GRID = true;
+const SHOW_DEBUG_GRID = false;
 
 // Manual start/goal overrides. null = auto-detect. Enable SHOW_DEBUG_GRID and
 // click the canvas to read world coords, then paste them here.
@@ -231,12 +231,9 @@ function gridPassable(x, z) {
 function canMoveTo(x, z) { return gridPassable(x, z); }
 
 function cellFloorY(x, z) {
-  if (!hitYsGrid) return floorY;
-  const { xi, zi } = gridCell(x, z);
-  const cxi = Math.max(0, Math.min(GCOLS - 1, xi));
-  const czi = Math.max(0, Math.min(GROWS - 1, zi));
-  const hy = hitYsGrid[gIdx(cxi, czi)];
-  return (hy < 1e8) ? hy : floorY;
+  // Use global minimum so ball sits at consistent depth in all corridors.
+  // Per-cell sampling causes the ball to float high in shallower grooves.
+  return floorY;
 }
 
 /* ══════════════════════════════════════════════
@@ -355,18 +352,51 @@ function buildGrid() {
     }
   }
 
-  // Exclude outer border — right side intentionally left open to preserve the hole
-  const RIM = 8;
+  // Exclude only literal grid-edge cells — outer maze walls are in the mesh,
+  // so rely on maze_top raycasting rather than a wide artificial RIM.
+  const RIM = 2;
   for (let zi = 0; zi < GROWS; zi++)
     for (let xi = 0; xi < GCOLS; xi++)
       if (xi < RIM || zi < RIM || zi >= GROWS - RIM)
         gridData[gIdx(xi, zi)] = 0;
 
-  // Detect hole: passable cells in the right-side RIM (no wall mesh there = geometric gap)
+  // Flood-fill from grid centre — keeps only the connected maze interior.
+  // Cells outside the model boundary are passable too (no mesh hit) but are
+  // isolated by the outer wall mesh, so flood-fill removes them automatically.
+  {
+    const seed = (() => {
+      for (let zi = Math.floor(GROWS / 4); zi < Math.floor(3 * GROWS / 4); zi++)
+        for (let xi = Math.floor(GCOLS / 4); xi < Math.floor(3 * GCOLS / 4); xi++)
+          if (gridData[gIdx(xi, zi)] === 1) return { xi, zi };
+      return null;
+    })();
+    if (seed) {
+      const vis = new Uint8Array(GCOLS * GROWS);
+      const q = [seed.xi * GROWS + seed.zi];
+      vis[gIdx(seed.xi, seed.zi)] = 1;
+      while (q.length) {
+        const c = q.pop();
+        const xi = Math.floor(c / GROWS), zi = c % GROWS;
+        for (const [dx, dz] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+          const nx = xi + dx, nz = zi + dz;
+          if (nx < 0 || nx >= GCOLS || nz < 0 || nz >= GROWS) continue;
+          const ni = gIdx(nx, nz);
+          if (gridData[ni] === 1 && !vis[ni]) { vis[ni] = 1; q.push(nx * GROWS + nz); }
+        }
+      }
+      let removed = 0;
+      for (let i = 0; i < GCOLS * GROWS; i++)
+        if (gridData[i] === 1 && !vis[i]) { gridData[i] = 0; removed++; }
+      console.log(`Flood-fill: removed ${removed} isolated passable cells`);
+    }
+  }
+
+  // Detect hole: scan rightmost 10 columns for passable cells (geometric gap in right wall)
+  const HOLE_SCAN = 10;
   holeFound = false;
   let _hXiBest = GCOLS, _hZiSum = 0, _hZiCnt = 0;
   for (let zi = RIM; zi < GROWS - RIM; zi++) {
-    for (let xi = GCOLS - RIM; xi < GCOLS; xi++) {
+    for (let xi = GCOLS - HOLE_SCAN; xi < GCOLS; xi++) {
       if (gridData[gIdx(xi, zi)] === 1) {
         if (xi < _hXiBest) _hXiBest = xi;
         _hZiSum += zi; _hZiCnt++;
@@ -376,7 +406,7 @@ function buildGrid() {
   }
   if (holeFound) {
     const p = gridXZ(_hXiBest, Math.round(_hZiSum / _hZiCnt));
-    holeX = p.x; holeZ = p.z;
+    holeX = p.x + HOLE_X_NUDGE; holeZ = p.z;
     console.log(`Hole at x=${holeX.toFixed(2)} z=${holeZ.toFixed(2)} (${_hZiCnt} cells)`);
   }
 
@@ -411,14 +441,22 @@ function findPassablePos(xiMin, xiMax, ziMin, ziMax) {
 }
 
 function finishSetup() {
-  const RIM = 2;
+  // START_RIM is separate from buildGrid RIM — keeps start well inside maze
+  // regardless of how small the buildGrid RIM is.
+  const START_RIM = 8;
 
-  // Start: manual override or first passable cell (upper-left)
+  // Start: manual override or first passable cell (upper-left interior)
   if (MANUAL_START) { startX = MANUAL_START.x; startZ = MANUAL_START.z; }
   else {
-    const sp = findPassablePos(RIM, GCOLS - 1 - RIM, RIM, GROWS - 1 - RIM);
+    const sp = findPassablePos(START_RIM, GCOLS - 1 - START_RIM, START_RIM, GROWS - 1 - START_RIM);
     startX = sp.x; startZ = sp.z;
   }
+  // Nudge start away from adjacent walls so ball doesn't begin overlapping them
+  const _sR = BR * 0.85;
+  if (!gridPassable(startX - _sR, startZ)) startX += _sR;
+  if (!gridPassable(startX + _sR, startZ)) startX -= _sR;
+  if (!gridPassable(startX, startZ - _sR)) startZ += _sR;
+  if (!gridPassable(startX, startZ + _sR)) startZ -= _sR;
 
   // Goal: manual override → hole (right-wall gap) → farthest Manhattan fallback
   if (MANUAL_GOAL) { goalX = MANUAL_GOAL.x; goalZ = MANUAL_GOAL.z; }
@@ -434,31 +472,6 @@ function finishSetup() {
       }
     }
   }
-
-  // Start marker
-  const mkS = new THREE.Mesh(new THREE.CircleGeometry(0.22, 24), matStart);
-  mkS.rotation.x = -Math.PI / 2;
-  mkS.position.set(startX, floorY + 0.05, startZ);
-  mazeGroup.add(mkS);
-
-  // Goal marker + ring
-  const mkG = new THREE.Mesh(new THREE.CircleGeometry(0.22, 24), matGoal);
-  mkG.rotation.x = -Math.PI / 2;
-  mkG.position.set(goalX, floorY + 0.05, goalZ);
-  mazeGroup.add(mkG);
-
-  const goalRing = new THREE.Mesh(
-    new THREE.TorusGeometry(0.28, 0.03, 8, 28),
-    new THREE.MeshStandardMaterial({
-      color: 0xffd700,
-      emissive: new THREE.Color(0xff6600), emissiveIntensity: 1.2,
-      roughness: 0.08, metalness: 0.95,
-    })
-  );
-  goalRing.rotation.x = -Math.PI / 2;
-  goalRing.position.set(goalX, floorY + 0.08, goalZ);
-  goalRing.name = 'goalRing';
-  mazeGroup.add(goalRing);
 
   // Ball mesh
   ballMesh = new THREE.Mesh(new THREE.SphereGeometry(BR, 32, 32), matBall);
@@ -572,9 +585,22 @@ function physicsTick(dt) {
     const newX = ball.x + ball.vx * sdt;
     const newZ = ball.z + ball.vz * sdt;
 
-    if (canMoveTo(newX, ball.z)) { ball.x = newX; } else { ball.vx *= -RESTITUTION; }
-    if (canMoveTo(ball.x, newZ)) { ball.z = newZ; } else { ball.vz *= -RESTITUTION; }
+    // Check leading edge in movement direction so ball bounces at its surface, not its centre
+    const cR = BR * 0.93;
+    const okX = gridPassable(newX, ball.z) &&
+                (!ball.vx || gridPassable(newX + Math.sign(ball.vx) * cR, ball.z));
+    const okZ = gridPassable(ball.x, newZ) &&
+                (!ball.vz || gridPassable(ball.x, newZ + Math.sign(ball.vz) * cR));
+    if (okX) { ball.x = newX; } else { ball.vx *= -RESTITUTION; }
+    if (okZ) { ball.z = newZ; } else { ball.vz *= -RESTITUTION; }
   }
+
+  // Hard clamp — prevents escape through rounded corners where mesh has no wall.
+  // Right side (x > MX) is intentionally unclamped: the hole exit is there.
+  const EDGE = 0.12;
+  if (ball.x < -(MX - EDGE)) { ball.x = -(MX - EDGE); ball.vx =  Math.abs(ball.vx) * RESTITUTION; }
+  if (ball.z < -(MZ - EDGE)) { ball.z = -(MZ - EDGE); ball.vz =  Math.abs(ball.vz) * RESTITUTION; }
+  if (ball.z >  (MZ - EDGE)) { ball.z =  (MZ - EDGE); ball.vz = -Math.abs(ball.vz) * RESTITUTION; }
 
   ballMesh.position.set(ball.x, cellFloorY(ball.x, ball.z) + BR, ball.z);
 }
@@ -679,9 +705,6 @@ renderer.setAnimationLoop(now => {
       }
     }
 
-    // Pulse goal ring
-    const ring = mazeGroup.getObjectByName('goalRing');
-    if (ring) ring.material.emissiveIntensity = 0.6 + 0.6 * Math.sin(now * 0.004);
   }
 
   renderer.render(scene, camera);
